@@ -1,0 +1,124 @@
+---
+title: "PML final project"
+author: "Angel Dzhekov"
+
+output: html_document
+---
+
+
+##Background
+
+"Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset)."
+
+##Data
+
+
+##loading training and testing data
+```{r}
+URLtraining <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+URLtesting  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+pmlTraining <- read.csv(url(URLtraining), stringsAsFactors = FALSE)
+pmlTesting  <- read.csv(url(URLtesting), stringsAsFactors = FALSE)
+```
+
+##loading the required packages
+```{r message=FALSE}
+library(caret)
+library(dplyr)
+library(corrplot)
+library(randomForest)
+library(MASS)
+```
+
+
+
+###Data cleaning, division and preparation
+Removing of first seven columns: "X", user_name, "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window", which appear to have no use for the machine learning algorithms.
+
+```{r}
+pmlTesting <- pmlTesting[, -c(1:7)]
+pmlTraining <- pmlTraining[, -c(1:7)]
+```
+
+Deleting columns with all missing values
+```{r}
+pmlTraining <- pmlTraining[,colSums(is.na(pmlTraining)) == 0]
+pmlTesting <- pmlTesting[,colSums(is.na(pmlTesting)) == 0]
+```
+
+removing NA values from the training set
+```{r}
+pmlTraining[is.na(pmlTraining)] <- ""
+```
+
+data partitioning
+```{r}
+inTrain <- createDataPartition(y=pmlTraining$classe, p=0.7, list = FALSE)
+training <- pmlTraining[inTrain, ]
+testing <- pmlTraining[-inTrain, ]
+```
+
+Removing of Near Zero Variance variables
+```{r}
+nsv <- nearZeroVar(training, saveMetrics = TRUE)
+
+remover <- c(1:nrow(nsv))
+remover <- remover[nsv$nzv]
+
+training <- training[, -remover]
+testing <- testing[, -remover]
+```
+
+Removing "classe" variable for the needs of the creation of correlation matrix
+```{r}
+trainAux <- training[, -53]
+CorMat <- cor(trainAux)
+corrplot(CorMat, order = "FPC", method = "circle", type = "lower", tl.cex = 0.6, tl.col = rgb(0, 0, 0))
+```
+
+Removing highly correlated variables
+```{r}
+CorMat[upper.tri(CorMat)] <- 0
+diag(CorMat) <- 0
+trainAuxNew <- trainAux[,!apply(CorMat,2,function(x) any(abs(x) > 0.95))]
+```
+
+returning the "classe" variable to the training set
+```{r}
+classe <- training$classe
+training  <- cbind(trainAuxNew, classe)
+```
+
+##Model building
+I will try Random Forest and Linear Discirminant Analysis methods and use the more accurate one for the final prediction of the test set.
+```{r}
+set.seed(1801)
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modelFitRF <- train(classe ~ ., data=training, method="rf",
+                          trControl=controlRF)
+modelFitRF$finalModel
+```
+
+Prediction on the test part of the training set
+
+```{r}
+predictRandForest <- predict(modelFitRF, newdata=testing)
+confMatRandForest <- confusionMatrix(predictRandForest, testing$classe)
+confMatRandForest
+```
+
+```{r message=FALSE}
+modlda <- train(classe ~ ., data = training, method = "lda")
+modlda$finalModel
+```
+```{r}
+confusionMatrix(testing$classe, predict(modlda, testing))
+```
+
+##Conclusion
+Random Forest model offers better accuracy (.99) by far in comparison to the LDA model (.69), and a very good accuracy overall, so I will use it for predicting on the test set. 
+
+```{r}
+predictTEST <- predict(modelFitRF, newdata=pmlTesting)
+predictTEST
+```
